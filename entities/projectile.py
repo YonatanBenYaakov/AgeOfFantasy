@@ -4,7 +4,26 @@ import os
 
 
 class Projectile:
+    """
+    Represents a projectile (arrow / fireball / bomb / magic ball) in the game.
+
+    The projectile moves toward a target unit and applies damage on hit.
+    Visual appearance depends on the shooter type and age.
+    """
+
     def __init__(self, x, y, target, damage, shooter_team, shooter_type, shooter_age="human"):
+        """
+        Initialize a projectile.
+
+        Args:
+            x (int): Starting X position
+            y (int): Starting Y position
+            target (Unit/BaseTarget): The target to follow and hit
+            damage (int): Damage dealt on impact
+            shooter_team (str): 'player' or 'enemy'
+            shooter_type (str): melee / ranged / flying
+            shooter_age (str): unit evolution stage (human, ogre, elf, dragon)
+        """
         self.x = float(x)
         self.y = float(y)
         self.target = target
@@ -13,31 +32,35 @@ class Projectile:
         self.speed = 8.0
         self.active = True
 
-        # --- בחירת תמונה וגודל לפי העידן וסוג היורה ---
+        # Default visual fallback values
         image_path = ""
-        width, height = 45, 15  # מידות ברירת מחדל לחץ
+        width, height = 45, 15
         self.color = (0, 0, 0)
 
-        # דרקון (רחוק ומעופף) או אלף (מעופף) -> Fireball
+        # ===============================
+        # Projectile type selection logic
+        # ===============================
+
+        # Dragon or Elf ranged/flying -> Fireball
         if (shooter_age == "dragon" and shooter_type in ["ranged", "flying"]) or (
                 shooter_age == "elf" and shooter_type == "flying"):
             image_path = "assets/images/projectiles/fireball.png"
             width, height = 35, 35
-            self.color = (255, 100, 0)  # כתום אש לגיבוי
+            self.color = (255, 100, 0)
 
-        # אוגר (מעופף) -> Magicball
+        # Ogre flying -> Magic ball
         elif shooter_age == "ogre" and shooter_type == "flying":
             image_path = "assets/images/projectiles/magicball.png"
             width, height = 35, 35
-            self.color = (138, 43, 226)  # סגול קסם לגיבוי
+            self.color = (138, 43, 226)
 
-        # ברירת מחדל לכל שאר המעופפים (כמו human) -> Bomb
+        # Default flying units -> Bomb
         elif shooter_type == "flying":
             image_path = "assets/images/projectiles/bomb.png"
             width, height = 35, 35
             self.color = (0, 0, 0)
 
-        # ברירת מחדל לכל שאר הרחוקים -> Arrow
+        # Default ranged attack -> Arrow
         else:
             image_path = "assets/images/projectiles/arrow.png"
             width, height = 45, 15
@@ -46,37 +69,53 @@ class Projectile:
         self.rect = pygame.Rect(x, y, width, height)
         self.image = None
 
-        # --- טעינת התמונה אם היא קיימת ---
+        # Load image if available
         if os.path.exists(image_path):
             img = pygame.image.load(image_path).convert_alpha()
             img = pygame.transform.scale(img, (self.rect.width, self.rect.height))
 
-            # הפיכת התמונה אם זה האויב יורה
+            # Flip enemy projectiles for correct direction
             if self.shooter_team == "enemy":
                 img = pygame.transform.flip(img, True, False)
+
             self.image = img
 
-    def update(self,dt):
+    def update(self, dt):
+        """
+        Updates projectile movement toward its target.
+
+        Args:
+            dt (float): Delta time for frame-independent movement (currently unused but kept for consistency)
+        """
         if self.target.hp <= 0:
             self.active = False
             return
 
+        # Calculate direction vector toward target
         dx = self.target.rect.centerx - self.x
         dy = self.target.rect.centery - self.y
         dist = math.hypot(dx, dy)
 
+        # If close enough -> apply damage
         if dist < self.speed:
             self.target.hp -= self.damage
             self.active = False
         else:
+            # Normalize movement direction
             self.x += (dx / dist) * self.speed
             self.y += (dy / dist) * self.speed
             self.rect.x = int(self.x)
             self.rect.y = int(self.y)
 
     def draw(self, surface):
+        """
+        Draw the projectile on screen.
+
+        Args:
+            surface (pygame.Surface): The surface to draw on
+        """
         if self.image:
             surface.blit(self.image, self.rect)
         else:
-            # גיבוי: מצייר מלבן אם לא קיימת תמונה
+            # Fallback rectangle if image is missing
             pygame.draw.rect(surface, self.color, self.rect)

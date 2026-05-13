@@ -3,34 +3,66 @@ import threading
 import time
 import select
 
-# הגדרות השרת
-HOST = '10.0.0.11'
+# =========================
+# Server Configuration
+# =========================
+
+HOST = '1.1.1.1'
 PORT = 5555
 
+# Create TCP socket server
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((HOST, PORT))
 server.listen()
 
-# --- משתני ניהול תור ---
+# =========================
+# Matchmaking Queue System
+# =========================
+
+# List of players waiting for a match
 player_queue = []
+
+# Lock to prevent race conditions when multiple threads access the queue
 queue_lock = threading.Lock()
 
 
+# =========================
+# Game Session Handler
+# =========================
+
 def handle_game(p1_conn, p2_conn):
+    """
+    Handles a single PvP game session between two connected players.
+    This function creates a bidirectional relay system between both clients.
+    """
+
     def forward_data(sender, receiver, player_num):
+        """
+        Continuously forwards data from one player to the other.
+
+        This acts as a real-time relay tunnel:
+        Player A → Server → Player B (and vice versa)
+        """
         try:
             while True:
-                # <-- התיקון כאן! שינינו מ-1024 ל-4096
                 data = sender.recv(4096)
+
+                # If no data is received, the connection is closed
                 if not data:
                     break
+
+                # Forward received data to the opponent
                 receiver.sendall(data)
+
         except:
+            # Any network error will break the forwarding loop
             pass
+
         finally:
             print(f"[DISCONNECT] Player {player_num} left the game.")
             sender.close()
 
+    # Create two threads for bidirectional communication
     t1 = threading.Thread(target=forward_data, args=(p1_conn, p2_conn, 1))
     t2 = threading.Thread(target=forward_data, args=(p2_conn, p1_conn, 2))
 
@@ -43,65 +75,99 @@ def handle_game(p1_conn, p2_conn):
     print("[MATCH ENDED] The game session is over.")
 
 
+# =========================
+# Queue Cleaner System
+# =========================
+
 def clean_queue():
     """
-    פונקציה שרצה ברקע וכל חצי שנייה מנקה מהתור אנשים שלחצו אסקייפ או סגרו את החלון.
+    Background process that continuously cleans invalid players from the queue.
+
+    It removes:
+    - Disconnected sockets
+    - Players who pressed ESC / CANCEL
     """
+
     while True:
         with queue_lock:
             if len(player_queue) > 0:
                 try:
-                    # select בודק האם אחד מהשחקנים בתור שלח מידע או סגר את הצינור
+                    # Check which sockets are readable (active or closed)
                     readable, _, _ = select.select(player_queue, [], [], 0)
+
                     for conn in readable:
                         try:
                             data = conn.recv(1024)
-                            # אם הוא סגר את החיבור או ששלח במפורש את הפקודה שיצרנו
+
+                            # If no data or CANCEL message → remove player
                             if not data or b"CANCEL" in data:
                                 if conn in player_queue:
                                     player_queue.remove(conn)
-                                    print(f"[QUEUE] Player canceled (ESC). Current players waiting: {len(player_queue)}")
+                                    print(f"[QUEUE] Player canceled. Waiting: {len(player_queue)}")
                                     conn.close()
+
                         except:
-                            # אם יש שגיאה (החיבור נפל לגמרי)
+                            # If connection is broken
                             if conn in player_queue:
                                 player_queue.remove(conn)
-                                print(f"[QUEUE] Player disconnected. Current players waiting: {len(player_queue)}")
+                                print(f"[QUEUE] Player disconnected. Waiting: {len(player_queue)}")
                                 conn.close()
-                except Exception as e:
+
+                except Exception:
                     pass
+
         time.sleep(0.5)
 
 
+# =========================
+# Matchmaking System
+# =========================
+
 def matchmaking():
     """
-    פונקציה שרצה בלולאה ברקע כל הזמן ומשדכת שחקנים מהתור.
+    Continuously matches players from the queue in pairs.
+
+    Flow:
+    1. Check if at least 2 players are waiting
+    2. Remove them from queue (FIFO order)
+    3. Notify both players
+    4. Start a new game session thread
     """
+
     while True:
         with queue_lock:
-            # התנאי: יש לפחות 2 שחקנים בתור
             if len(player_queue) >= 2:
+
+                # Take first two players in queue
                 p1_conn = player_queue.pop(0)
                 p2_conn = player_queue.pop(0)
 
                 p1_alive = True
                 p2_alive = True
 
+                # Notify players they were matched
                 try:
                     p1_conn.sendall(b"MATCH_FOUND|1")
-                except Exception:
+                except:
                     p1_alive = False
 
                 try:
                     p2_conn.sendall(b"MATCH_FOUND|2")
-                except Exception:
+                except:
                     p2_alive = False
 
+                # Start game if both players are still connected
                 if p1_alive and p2_alive:
-                    print("[MATCHED] 2 players pulled from queue. Starting match in a new thread...")
-                    threading.Thread(target=handle_game, args=(p1_conn, p2_conn)).start()
+                    print("[MATCHED] Starting new game session...")
+                    threading.Thread(
+                        target=handle_game,
+                        args=(p1_conn, p2_conn)
+                    ).start()
+
                 else:
-                    print("[ERROR] Someone disconnected while trying to start the match.")
+                    print("[ERROR] Match failed due to disconnect.")
+
+                    # Return alive player back to queue
                     if p1_alive:
                         player_queue.insert(0, p1_conn)
                     elif p2_alive:
@@ -110,21 +176,39 @@ def matchmaking():
         time.sleep(1)
 
 
-def accept_connections():
-    print(f"[STARTING] Server is running and listening on {HOST}:{PORT}")
+# =========================
+# Connection Handler
+# =========================
 
-    # מפעילים את השידוכים ואת מנקה התור ברקע
+def accept_connections():
+    """
+    Main server loop.
+
+    Responsibilities:
+    - Accept new TCP connections
+    - Add players to matchmaking queue
+    - Start background systems (matchmaking + cleanup)
+    """
+
+    print(f"[STARTING] Server running on {HOST}:{PORT}")
+
+    # Start background threads
     threading.Thread(target=matchmaking, daemon=True).start()
     threading.Thread(target=clean_queue, daemon=True).start()
 
+    # Main accept loop
     while True:
         conn, addr = server.accept()
-        print(f"[NEW CONNECTION] {addr} connected. Adding to queue...")
+        print(f"[NEW CONNECTION] {addr} connected")
 
         with queue_lock:
             player_queue.append(conn)
-            print(f"[QUEUE] Current players waiting: {len(player_queue)}")
+            print(f"[QUEUE] Players waiting: {len(player_queue)}")
 
+
+# =========================
+# Entry Point
+# =========================
 
 if __name__ == "__main__":
     accept_connections()
