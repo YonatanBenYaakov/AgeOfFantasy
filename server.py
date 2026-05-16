@@ -7,7 +7,7 @@ import select
 # Server Configuration
 # =========================
 
-HOST = '1.1.1.1'
+HOST = '0.0.0.0'
 PORT = 5555
 
 # Create TCP socket server

@@ -242,20 +242,23 @@ class NetworkGameScreen(BaseGameScreen):
 
         current_player_age = self.ages[self.player_age_index]
 
-        # Unit purchases (SPAWN commands)
+        # Unit purchases (SPAWN commands) מתוך הגרסה הישנה שמצאת:
         if self.buy_melee_btn.is_clicked(event) and self.player_gold >= 100:
             self.player_gold -= 100
-            self.units.append(Unit(...))
+            self.units.append(Unit(self.player_base_rect.x + 350, self.player_base_rect.bottom - 150,
+                                   "player", self.move_speed, (0, 0, 255), "melee", current_player_age))
             self.send_data("SPAWN|melee")
 
         if self.buy_ranged_btn.is_clicked(event) and self.player_gold >= 125:
             self.player_gold -= 125
-            self.units.append(Unit(...))
+            self.units.append(Unit(self.player_base_rect.x + 350, self.player_base_rect.bottom - 150,
+                                   "player", self.move_speed, (0, 255, 0), "ranged", current_player_age))
             self.send_data("SPAWN|ranged")
 
         if self.buy_flying_btn.is_clicked(event) and self.player_gold >= 150:
             self.player_gold -= 150
-            self.units.append(Unit(...))
+            self.units.append(Unit(self.player_base_rect.x + 350, self.player_base_rect.bottom - 150,
+                                   "player", self.move_speed, (0, 255, 255), "flying", current_player_age))
             self.send_data("SPAWN|flying")
 
         # Special ability
